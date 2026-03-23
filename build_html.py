@@ -573,21 +573,45 @@ function lineChart(values, labels, opts={}) {
   const px = i => pad.l + i/(Math.max(values.length-1,1)) * w;
   const py = v => pad.t + h - (v-mn)/range * h;
 
-  // line + area path
-  let line='', area='';
-  let firstI=-1, lastI=-1;
-  values.forEach((v,i) => { if(v!=null){if(firstI<0)firstI=i; lastI=i;} });
+  // Build line path and area path segment-by-segment so gaps don't
+  // produce diagonal fills — each contiguous run gets its own closed shape.
+  let line = '';
+  const areaSegments = [];
+  let segLine = '', segFirstX = null, segLastX = null;
 
-  values.forEach((v,i) => {
-    if(v==null) return;
-    const x=px(i).toFixed(1), y=py(v).toFixed(1);
-    line += (line===''||values[i-1]==null) ? `M${x},${y}` : `L${x},${y}`;
+  values.forEach((v, i) => {
+    if (v == null) {
+      // close off any open segment
+      if (segLine && segFirstX !== null) {
+        areaSegments.push(
+          segLine +
+          `L${segLastX},${(pad.t+h).toFixed(1)}` +
+          `L${segFirstX},${(pad.t+h).toFixed(1)}Z`
+        );
+        segLine = ''; segFirstX = null; segLastX = null;
+      }
+      return;
+    }
+    const x = px(i).toFixed(1), y = py(v).toFixed(1);
+    if (segLine === '') {
+      line    += `M${x},${y}`;
+      segLine  = `M${x},${y}`;
+      segFirstX = x;
+    } else {
+      line    += `L${x},${y}`;
+      segLine += `L${x},${y}`;
+    }
+    segLastX = x;
   });
-  if(firstI>=0) {
-    area = line +
-      `L${px(lastI).toFixed(1)},${(pad.t+h).toFixed(1)}` +
-      `L${px(firstI).toFixed(1)},${(pad.t+h).toFixed(1)}Z`;
+  // close final segment
+  if (segLine && segFirstX !== null) {
+    areaSegments.push(
+      segLine +
+      `L${segLastX},${(pad.t+h).toFixed(1)}` +
+      `L${segFirstX},${(pad.t+h).toFixed(1)}Z`
+    );
   }
+  const area = areaSegments.join(' ');
 
   // y ticks — 4 levels
   const ticks = 4;
@@ -609,8 +633,10 @@ function lineChart(values, labels, opts={}) {
                   font-size="10" fill="#9ca3af">${l}</text>`;
   }).join('');
 
-  // dots at first/last
-  const dotSvg = (firstI>=0 && values[firstI]!=null)
+  // dots at first and last non-null values
+  const firstI = values.findIndex(v => v != null);
+  const lastI  = values.reduce((acc, v, i) => v != null ? i : acc, -1);
+  const dotSvg = firstI >= 0
     ? `<circle cx="${px(firstI).toFixed(1)}" cy="${py(values[firstI]).toFixed(1)}"
                r="3" fill="${color}"/>
        <circle cx="${px(lastI).toFixed(1)}" cy="${py(values[lastI]).toFixed(1)}"
