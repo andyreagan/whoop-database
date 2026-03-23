@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+
+# Env (keep .env in repo but don't track secrets accidentally)
+# .env is committed intentionally with CLIENT_ID/SECRET already in it;
+# tokens are auto-written by the script.
+
+# OS
+.DS_Store
+Thumbs.db

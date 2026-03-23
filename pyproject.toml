@@ -1,0 +1,26 @@
+[project]
+name = "whoop-database"
+version = "0.1.0"
+description = "Build and maintain a local SQLite database of daily WHOOP metrics"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+whoop-db = "whoop_db:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["whoop_db.py"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
