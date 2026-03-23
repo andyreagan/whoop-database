@@ -10,7 +10,8 @@ dependencies = [
 ]
 
 [project.scripts]
-whoop-db = "whoop_db:main"
+whoop-db   = "whoop_db:main"
+whoop-html = "build_html:main"
 
 [build-system]
 requires = ["hatchling"]
