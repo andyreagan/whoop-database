@@ -75,7 +75,7 @@ from dotenv import load_dotenv, set_key
 
 WHOOP_AUTH_URL   = "https://api.prod.whoop.com/oauth/oauth2/auth"
 WHOOP_TOKEN_URL  = "https://api.prod.whoop.com/oauth/oauth2/token"
-WHOOP_API_BASE   = "https://api.prod.whoop.com/developer/v1"
+WHOOP_API_BASE   = "https://api.prod.whoop.com/developer/v2"
 
 REDIRECT_URI     = "http://localhost:8484/callback"
 SCOPES           = "offline read:profile read:cycles read:sleep read:recovery read:workout"
@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS daily (
 );
 
 CREATE TABLE IF NOT EXISTS workouts (
-    id                      INTEGER PRIMARY KEY,
+    id                      TEXT PRIMARY KEY,
     date                    TEXT,       -- calendar date (FK → daily.date)
     sport_id                INTEGER,
     sport_name              TEXT,
@@ -567,7 +567,7 @@ def cycle_to_day_dict(cycle: dict) -> dict:
         "strain":      score.get("strain"),
         "avg_hr":      score.get("average_heart_rate"),
         "max_hr":      score.get("max_heart_rate"),
-        "kilojoules":  score.get("kilojoules"),
+        "kilojoules":  score.get("kilojoule"),   # API field is "kilojoule" (no s)
         "cycle_start": cycle.get("start"),
         "cycle_end":   cycle.get("end"),
     }
@@ -587,46 +587,49 @@ def recovery_to_day_dict(rec: dict) -> dict:
 def sleep_to_day_dict(sleep: dict) -> dict:
     score   = sleep.get("score") or {}
     staging = score.get("stage_summary") or {}
+    needed  = score.get("sleep_needed") or {}
     return {
-        "sleep_performance_pct":      score.get("sleep_performance_percentage"),
-        "sleep_quality_duration_ms":  score.get("sleep_needed", {}).get("baseline_milli") if isinstance(score.get("sleep_needed"), dict) else None,
-        "sleep_total_in_bed_ms":      staging.get("total_in_bed_time_milli"),
-        "sleep_light_ms":             staging.get("total_light_sleep_time_milli"),
-        "sleep_rem_ms":               staging.get("total_rem_sleep_time_milli"),
-        "sleep_slow_wave_ms":         staging.get("total_slow_wave_sleep_time_milli"),
-        "sleep_awake_ms":             staging.get("total_awake_time_milli"),
-        "sleep_disturbances":         staging.get("disturbance_count"),
-        "sleep_latency_ms":           score.get("sleep_latency_milli"),
-        "respiratory_rate":           score.get("respiratory_rate"),
+        "sleep_performance_pct":     score.get("sleep_performance_percentage"),
+        "sleep_quality_duration_ms": needed.get("baseline_milli"),
+        "sleep_total_in_bed_ms":     staging.get("total_in_bed_time_milli"),
+        "sleep_light_ms":            staging.get("total_light_sleep_time_milli"),
+        "sleep_rem_ms":              staging.get("total_rem_sleep_time_milli"),
+        "sleep_slow_wave_ms":        staging.get("total_slow_wave_sleep_time_milli"),
+        "sleep_awake_ms":            staging.get("total_awake_time_milli"),
+        "sleep_disturbances":        staging.get("disturbance_count"),
+        "sleep_latency_ms":          score.get("sleep_latency_milli"),
+        "respiratory_rate":          score.get("respiratory_rate"),
     }
 
 
 def workout_to_row(wkt: dict, date: str) -> dict:
-    score = wkt.get("score") or {}
-    zones = score.get("zone_duration") or {}
+    score    = wkt.get("score") or {}
+    zones    = score.get("zone_durations") or {}   # API field is "zone_durations"
     sport_id = wkt.get("sport_id", -1)
+    # v2 API provides sport_name directly; fall back to our lookup table
+    sport_name = wkt.get("sport_name") or SPORT_NAMES.get(sport_id, f"Sport_{sport_id}")
     return {
-        "id":                 wkt.get("id"),
-        "date":               date,
-        "sport_id":           sport_id,
-        "sport_name":         SPORT_NAMES.get(sport_id, f"Sport_{sport_id}"),
-        "start":              wkt.get("start"),
-        "end":                wkt.get("end"),
-        "strain":             score.get("strain"),
-        "avg_hr":             score.get("average_heart_rate"),
-        "max_hr":             score.get("max_heart_rate"),
-        "kilojoules":         score.get("kilojoules"),
-        "percent_recorded":   score.get("percent_recorded"),
-        "distance_meter":     score.get("distance_meter"),
-        "altitude_gain_meter": score.get("altitude_gain_meter"),
+        "id":                    wkt.get("id"),
+        "date":                  date,
+        "sport_id":              sport_id,
+        "sport_name":            sport_name,
+        "start":                 wkt.get("start"),
+        "end":                   wkt.get("end"),
+        "strain":                score.get("strain"),
+        "avg_hr":                score.get("average_heart_rate"),
+        "max_hr":                score.get("max_heart_rate"),
+        "kilojoules":            score.get("kilojoule"),      # API field is "kilojoule"
+        "percent_recorded":      score.get("percent_recorded"),
+        "distance_meter":        score.get("distance_meter"),
+        "altitude_gain_meter":   score.get("altitude_gain_meter"),
         "altitude_change_meter": score.get("altitude_change_meter"),
-        "zone_zero_ms":       zones.get("zone_zero_milli"),
-        "zone_one_ms":        zones.get("zone_one_milli"),
-        "zone_two_ms":        zones.get("zone_two_milli"),
-        "zone_three_ms":      zones.get("zone_three_milli"),
-        "zone_four_ms":       zones.get("zone_four_milli"),
-        "zone_five_ms":       zones.get("zone_five_milli"),
-        "fetched_at":         now_utc(),
+        "zone_zero_ms":          zones.get("zone_zero_milli"),
+        "zone_one_ms":           zones.get("zone_one_milli"),
+        "zone_two_ms":           zones.get("zone_two_milli"),
+        "zone_three_ms":         zones.get("zone_three_milli"),
+        "zone_four_ms":          zones.get("zone_four_milli"),
+        "zone_five_ms":          zones.get("zone_five_milli"),
+        "fetched_at":            now_utc(),
     }
 
 
@@ -741,7 +744,7 @@ def _pull_range(client: WhoopClient, con: sqlite3.Connection,
         row["workout_count"] = (row.get("workout_count") or 0) + 1
         score = wkt.get("score") or {}
         row["workout_strain"] = (row.get("workout_strain") or 0.0) + (score.get("strain") or 0.0)
-        row["workout_kilojoules"] = (row.get("workout_kilojoules") or 0.0) + (score.get("kilojoules") or 0.0)
+        row["workout_kilojoules"] = (row.get("workout_kilojoules") or 0.0) + (score.get("kilojoule") or 0.0)
         # Also upsert the detailed workout row
         upsert_workout(con, workout_to_row(wkt, date))
         wkt_count += 1
