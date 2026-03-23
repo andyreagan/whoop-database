@@ -68,7 +68,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WHOOP Dashboard</title>
+<title>Andy's WHOOP Dashboard</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -292,7 +292,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 <!-- SIDEBAR -->
 <nav class="sidebar">
-  <div class="sidebar-logo">whoop<span>.</span></div>
+  <div class="sidebar-logo">Andy's <span>WHOOP</span></div>
 
   <div class="nav-section">
     <div class="nav-section-title">Overview</div>
