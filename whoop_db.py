@@ -36,6 +36,13 @@ DATA PULLED
   Multiple cycles in one calendar day are merged (averaged / summed as
   appropriate) to keep one row per day.
 
+RATE LIMITS
+-----------
+  100 requests / minute,  10 000 requests / day  (as of 2026)
+  The script targets ~60 req/min (1 req/s) and backs off automatically
+  when approaching the per-minute window.  A hard stop is applied at
+  9 900 daily requests to avoid hitting the 10 000 cap.
+
 ENV / .env
 ----------
   WHOOP_CLIENT_ID       App client ID
@@ -73,8 +80,42 @@ WHOOP_API_BASE   = "https://api.prod.whoop.com/developer/v1"
 REDIRECT_URI     = "http://localhost:8484/callback"
 SCOPES           = "offline read:profile read:cycles read:sleep read:recovery read:workout"
 
-# WHOOP doesn't publish hard rate-limit numbers; we stay conservative.
-_REQUEST_DELAY_S = 0.25   # 4 req/s max
+# WHOOP rate limits: 100 req/min, 10 000 req/day.
+# We target ~60 req/min (1/s) to stay comfortably under the per-minute limit.
+_REQUEST_DELAY_S      = 1.0        # seconds between requests (60 req/min)
+_PER_MINUTE_LIMIT     = 90         # back off when we've sent this many in 60s
+_PER_MINUTE_WINDOW_S  = 60
+_PER_DAY_LIMIT        = 9900       # soft cap — warn and stop before hard 10 000
+
+_request_times: list[float] = []   # monotonic timestamps of recent requests
+
+
+def _record_request() -> None:
+    now = time.monotonic()
+    _request_times.append(now)
+    cutoff = now - _PER_MINUTE_WINDOW_S
+    while _request_times and _request_times[0] < cutoff:
+        _request_times.pop(0)
+
+
+def _maybe_rate_limit() -> None:
+    """Sleep if we're approaching the per-minute limit."""
+    if len(_request_times) >= _PER_MINUTE_LIMIT:
+        oldest = _request_times[0]
+        sleep_for = _PER_MINUTE_WINDOW_S - (time.monotonic() - oldest) + 1
+        if sleep_for > 0:
+            print(f"  [rate-limit] {len(_request_times)} req in last 60s — "
+                  f"sleeping {sleep_for:.0f}s …", flush=True)
+            time.sleep(sleep_for)
+            cutoff = time.monotonic() - _PER_MINUTE_WINDOW_S
+            while _request_times and _request_times[0] < cutoff:
+                _request_times.pop(0)
+
+    if len(_request_times) >= _PER_DAY_LIMIT:
+        sys.exit(
+            f"ERROR: Reached {_PER_DAY_LIMIT} requests today (daily limit is "
+            "10 000).  Re-run tomorrow to continue."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -127,10 +168,11 @@ def do_login(client_id: str, client_secret: str,
 
     Returns (access_token, refresh_token).
     """
+    import base64
+
     # PKCE verifier / challenge
     verifier  = secrets.token_urlsafe(64)
     digest    = hashlib.sha256(verifier.encode()).digest()
-    import base64
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     state     = secrets.token_hex(16)
 
@@ -148,11 +190,11 @@ def do_login(client_id: str, client_secret: str,
     print(f"\nOpening browser for WHOOP login …\n  {auth_url}\n", flush=True)
     webbrowser.open(auth_url)
 
-    # Start local server
+    # Start local server to catch the redirect
     server = http.server.HTTPServer(("localhost", 8484), _OAuthCallbackHandler)
     print("Waiting for OAuth callback on http://localhost:8484/callback …",
           flush=True)
-    server.handle_request()   # blocks until one request arrives
+    server.handle_request()
     server.server_close()
 
     code = _OAuthCallbackHandler.code
@@ -215,7 +257,9 @@ class WhoopClient:
 
     def _get(self, path: str, params: Optional[dict] = None,
              retry: bool = True) -> Any:
-        # Gentle rate-limiting
+        _maybe_rate_limit()
+
+        # Minimum spacing between requests
         elapsed = time.monotonic() - self._last_req
         if elapsed < _REQUEST_DELAY_S:
             time.sleep(_REQUEST_DELAY_S - elapsed)
@@ -224,6 +268,7 @@ class WhoopClient:
         headers = {"Authorization": f"Bearer {self.access_token}"}
         resp = self.session.get(url, headers=headers, params=params or {})
         self._last_req = time.monotonic()
+        _record_request()
 
         if resp.status_code == 401 and retry:
             self._refresh()
