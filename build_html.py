@@ -625,12 +625,32 @@ function lineChart(values, labels, opts={}) {
                   font-size="10" fill="#9ca3af">${lbl}</text>`;
   }).join('');
 
-  // x labels — ~6 evenly spaced
+  // x labels — ~6 evenly spaced, format chosen from the date span so the
+  // year is visible on multi-year charts (MM-DD alone reads as garbage there)
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const parseL = l => {
+    const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(l||'');
+    return m ? new Date(+m[1], +m[2]-1, m[3] ? +m[3] : 1) : null;
+  };
+  const dFirst = parseL(labels.find(l => parseL(l)));
+  const dLast  = parseL([...labels].reverse().find(l => parseL(l)));
+  const spanDays = dFirst && dLast ? (dLast - dFirst) / 86400000 : 0;
+  const fmtTick = l => {
+    if (/^\d{4}-Q\d$/.test(l||'')) return l;
+    const d = parseL(l);
+    if (!d) return l || '';
+    if (spanDays > 365 || /^\d{4}-\d{2}$/.test(l))
+      return `${MONTHS[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}`;
+    return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  };
   const step = Math.max(1,Math.floor(labels.length/6));
   const xLbls = labels.map((l,i) => {
-    if(i%step!==0 && i!==labels.length-1) return '';
+    const isLast = i === labels.length-1;
+    if(i%step!==0 && !isLast) return '';
+    // drop the stepped tick that would crowd the final one
+    if(!isLast && labels.length-1-i < step/2) return '';
     return `<text x="${px(i).toFixed(1)}" y="${H-4}" text-anchor="middle"
-                  font-size="10" fill="#9ca3af">${l}</text>`;
+                  font-size="10" fill="#9ca3af">${fmtTick(l)}</text>`;
   }).join('');
 
   // dots at first and last non-null values
@@ -668,7 +688,7 @@ function buildMetricCard(data, opts) {
   if (!rollState[id]) rollState[id] = rollWindows[1] || rollWindows[0];
 
   const raw    = data.map(d => d[field]);
-  const labels = data.map(d => d.date ? d.date.slice(5) : '');
+  const labels = data.map(d => d.date || '');
   const n      = rollState[id];
   const values = n === 1 ? raw : rolling(data, field, n);
 
@@ -726,7 +746,7 @@ document.addEventListener('click', e => {
   const color  = CARD_COLORS[cid];
   const dec    = CARD_DECIMALS[cid] || 1;
   const values = win===1 ? filtered.map(d=>d[field]) : rolling(filtered, field, win);
-  const labels = filtered.map(d=>d.date?d.date.slice(5):'');
+  const labels = filtered.map(d=>d.date||'');
   el.innerHTML = lineChart(values, labels, {id:cid, color,
     yFmt: v=>v.toFixed(dec), h: parseInt(el.closest('.metric-card').dataset.h)||130});
 });
