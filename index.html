@@ -404,6 +404,19 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
         independent of the range filter above. Each point is the monthly average.
         Use the granularity toggle on each card to switch between monthly and quarterly.
       </div>
+      <div class="metric-grid wide" style="margin-bottom:16px">
+        <div class="metric-card">
+          <div class="metric-card-header">
+            <div>
+              <div class="metric-card-title">Sleep Duration × Regularity — Monthly Trajectory</div>
+              <div class="metric-card-sub">Each dot is one month (avg nightly sleep vs. SRI),
+                connected in time order. Light&nbsp;→&nbsp;dark&nbsp;=&nbsp;past&nbsp;→&nbsp;present.</div>
+            </div>
+            <div class="roll-btns"><button class="roll-btn" id="phase-replay">▶ Replay</button></div>
+          </div>
+          <div id="phase-chart" style="position:relative"></div>
+        </div>
+      </div>
       <div class="metric-grid" id="longterm-charts"></div>
     </div>
 
@@ -829,7 +842,7 @@ function renderSleep() {
       rollWindows:[1,7,14,30,90], h:150}),
     buildMetricCard(filtered, {id:'sri', title:'Sleep Regularity Index (SRI)',
       field:'sri', color:'var(--accent)', unit:'', decimals:0,
-      rollWindows:[1,7,14,30,90], h:150}),
+      rollWindows:[1,4,7,14,30,90], h:150}),
     buildMetricCard(filtered, {id:'consist', title:'Sleep Consistency (WHOOP)',
       field:'sleep_consistency_pct', color:'var(--green)', unit:'%', decimals:0,
       rollWindows:[1,7,14,30,90], h:150}),
@@ -1094,7 +1107,137 @@ const LT_METRICS = [
 function renderLongTerm() {
   document.getElementById('longterm-charts').innerHTML =
     LT_METRICS.map(m => buildLTCard(m)).join('');
+  renderPhase();
 }
+
+// ── PHASE TRAJECTORY — sleep duration × SRI ───────────────────────────────
+let phaseRAF = null;
+
+function phasePoints() {
+  const buckets = {};
+  DAILY.forEach(d => {
+    const asleep = (d.sleep_light_min!=null || d.sleep_rem_min!=null || d.sleep_sws_min!=null)
+      ? ((d.sleep_light_min||0) + (d.sleep_rem_min||0) + (d.sleep_sws_min||0)) / 60
+      : null;
+    const key = d.date.slice(0,7);
+    if (!buckets[key]) buckets[key] = {h:[], s:[]};
+    if (asleep != null) buckets[key].h.push(asleep);
+    if (d.sri   != null) buckets[key].s.push(d.sri);
+  });
+  return Object.keys(buckets).sort()
+    .map(k => ({label:k, h:avg(buckets[k].h), s:avg(buckets[k].s), n:buckets[k].h.length}))
+    .filter(p => p.h != null && p.s != null && p.n >= 5);   // skip mostly-untracked months
+}
+
+const PH_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const phFmt = k => PH_MONTHS[+k.slice(5,7)-1] + ' ’' + k.slice(2,4);
+// sequential one-hue ramp, light (oldest) → dark (newest)
+function phRamp(t) {
+  const A=[0xc4,0xb5,0xfd], B=[0x4c,0x1d,0x95];
+  return 'rgb(' + A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',') + ')';
+}
+
+function renderPhase() {
+  const el = document.getElementById('phase-chart');
+  if (!el) return;
+  if (phaseRAF) { cancelAnimationFrame(phaseRAF); phaseRAF = null; }
+
+  const pts = phasePoints();
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">Not enough data</div>'; return; }
+  const N = pts.length;
+
+  const W=860, H=420, pad={t:26,r:26,b:46,l:52};
+  const xs=pts.map(p=>p.h), ys=pts.map(p=>p.s);
+  const xmn=Math.min(...xs), xmx=Math.max(...xs);
+  const ymn=Math.min(...ys), ymx=Math.max(...ys);
+  const xp=(xmx-xmn)*0.08||0.5, yp=(ymx-ymn)*0.08||2;
+  const X = v => pad.l + (v-(xmn-xp)) / ((xmx+xp)-(xmn-xp)) * (W-pad.l-pad.r);
+  const Y = v => H-pad.b - (v-(ymn-yp)) / ((ymx+yp)-(ymn-yp)) * (H-pad.t-pad.b);
+
+  // grid — recessive
+  let grid='';
+  for (let v=Math.ceil((xmn-xp)*2)/2; v<=xmx+xp; v+=0.5)
+    grid += `<line x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${pad.t}" y2="${H-pad.b}" stroke="#eef0f3"/>` +
+            `<text x="${X(v).toFixed(1)}" y="${H-pad.b+16}" text-anchor="middle" font-size="10" fill="#9ca3af">${v}h</text>`;
+  for (let i=0;i<=4;i++) {
+    const v=(ymn-yp)+((ymx+yp)-(ymn-yp))*i/4;
+    grid += `<line x1="${pad.l}" x2="${W-pad.r}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#eef0f3"/>` +
+            `<text x="${pad.l-6}" y="${Y(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="#9ca3af">${v.toFixed(0)}</text>`;
+  }
+  const axisTitles =
+    `<text x="${(pad.l+W-pad.r)/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="#6b7280">Average nightly sleep (hours)</text>` +
+    `<text x="${pad.l}" y="${pad.t-10}" font-size="11" fill="#6b7280">Sleep Regularity Index</text>`;
+
+  const segs = pts.slice(1).map((p,i) =>
+    `<line class="ph-el" data-i="${i+1}" x1="${X(pts[i].h).toFixed(1)}" y1="${Y(pts[i].s).toFixed(1)}"
+           x2="${X(p.h).toFixed(1)}" y2="${Y(p.s).toFixed(1)}"
+           stroke="${phRamp((i+1)/(N-1))}" stroke-width="2" stroke-linecap="round" opacity="0"/>`
+  ).join('');
+
+  const dots = pts.map((p,i) => {
+    const isJan = p.label.slice(5)==='01', isEnd = i===0 || i===N-1;
+    const big = isJan || isEnd;
+    let s = `<circle class="ph-el" data-i="${i}" cx="${X(p.h).toFixed(1)}" cy="${Y(p.s).toFixed(1)}"
+             r="${big?4:2.5}" fill="${phRamp(i/(N-1))}"
+             ${big?'stroke="#fff" stroke-width="1.5"':''} opacity="0"/>`;
+    if (big) s += `<text class="ph-el" data-i="${i}" x="${X(p.h).toFixed(1)}" y="${(Y(p.s)-9).toFixed(1)}"
+                   text-anchor="middle" font-size="10" font-weight="600" fill="#6b7280" opacity="0">
+                   ${isJan ? p.label.slice(0,4) : phFmt(p.label)}</text>`;
+    return s;
+  }).join('');
+
+  el.innerHTML = `<svg id="phase-svg" viewBox="0 0 ${W} ${H}" style="display:block;width:100%">
+      ${grid}${axisTitles}${segs}${dots}
+      <text id="ph-readout" x="${W-pad.r}" y="${pad.t+4}" text-anchor="end"
+            font-size="22" font-weight="800" fill="#d1d5db"></text>
+    </svg>
+    <div id="ph-tip" style="position:absolute;display:none;pointer-events:none;background:#111827;color:#fff;
+         font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;z-index:10"></div>`;
+
+  // animation — draw on in chronological order
+  const els = [...el.querySelectorAll('.ph-el')];
+  const readout = el.querySelector('#ph-readout');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) {
+    els.forEach(e => e.setAttribute('opacity', e.tagName==='line' ? 0.8 : 1));
+    readout.textContent = '';
+  } else {
+    const DUR = 6000; let t0 = null;
+    const tick = ts => {
+      if (t0 === null) t0 = ts;
+      const k = Math.min(1, (ts-t0)/DUR) * (N-1);
+      els.forEach(e => {
+        if (+e.dataset.i <= k) e.setAttribute('opacity', e.tagName==='line' ? 0.8 : 1);
+      });
+      readout.textContent = phFmt(pts[Math.min(N-1, Math.floor(k))].label);
+      if (k < N-1) phaseRAF = requestAnimationFrame(tick);
+      else { readout.textContent=''; phaseRAF = null; }
+    };
+    phaseRAF = requestAnimationFrame(tick);
+  }
+
+  // hover — nearest point within 24px
+  const svg = el.querySelector('#phase-svg'), tip = el.querySelector('#ph-tip');
+  svg.addEventListener('mousemove', ev => {
+    const r = svg.getBoundingClientRect(), sc = W/r.width;
+    const mx=(ev.clientX-r.left)*sc, my=(ev.clientY-r.top)*sc;
+    let best=null, bd=24*sc;
+    pts.forEach(p => {
+      const d=Math.hypot(X(p.h)-mx, Y(p.s)-my);
+      if (d<bd) { bd=d; best=p; }
+    });
+    if (!best) { tip.style.display='none'; return; }
+    tip.innerHTML = `<b>${phFmt(best.label)}</b> · ${best.h.toFixed(2)}h · SRI ${best.s.toFixed(1)}`;
+    tip.style.display='block';
+    tip.style.left = (X(best.h)/sc+12)+'px';
+    tip.style.top  = (Y(best.s)/sc-10)+'px';
+  });
+  svg.addEventListener('mouseleave', () => tip.style.display='none');
+}
+
+document.addEventListener('click', e => {
+  if (e.target.closest('#phase-replay')) renderPhase();
+});
 
 // ── RENDER DISPATCHER ─────────────────────────────────────────────────────
 function render() {
