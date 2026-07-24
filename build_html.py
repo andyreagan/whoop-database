@@ -10,6 +10,7 @@ Usage:
 import argparse
 import json
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -20,10 +21,13 @@ def load_data(db_path: str) -> dict:
     daily = con.execute("""
         SELECT
             date,
-            strain,
-            avg_hr,
-            max_hr,
-            kilojoules,
+            -- strain < 1 only happens when the watch wasn't worn (or barely);
+            -- a fully-worn sedentary day still scores ~4+.  Null those days so
+            -- charts show gaps instead of fake dips.  Raw values stay in the DB.
+            CASE WHEN strain >= 1 THEN strain END                    AS strain,
+            CASE WHEN strain >= 1 AND avg_hr > 0 THEN avg_hr END     AS avg_hr,
+            CASE WHEN strain >= 1 AND max_hr > 0 THEN max_hr END     AS max_hr,
+            CASE WHEN strain >= 1 AND kilojoules > 0 THEN kilojoules END AS kilojoules,
             recovery_score,
             hrv_rmssd_ms,
             resting_hr,
@@ -57,8 +61,23 @@ def load_data(db_path: str) -> dict:
         ORDER BY start ASC
     """).fetchall()
 
+    # Fill missing calendar days with all-null rows so charts render real
+    # gaps (instead of splicing time out) and rolling windows stay true
+    # calendar windows.
+    rows = [dict(r) for r in daily]
+    if rows:
+        by_date = {r["date"]: r for r in rows}
+        nulls   = {k: None for k in rows[0] if k != "date"}
+        d, last = date.fromisoformat(rows[0]["date"]), date.fromisoformat(rows[-1]["date"])
+        filled  = []
+        while d <= last:
+            ds = d.isoformat()
+            filled.append(by_date.get(ds) or {"date": ds, **nulls})
+            d += timedelta(days=1)
+        rows = filled
+
     return {
-        "daily":    [dict(r) for r in daily],
+        "daily":    rows,
         "workouts": [dict(r) for r in workouts],
     }
 
@@ -782,9 +801,11 @@ function renderKPI() {
   const resp = filtered.map(d=>d.respiratory_rate).filter(v=>v!=null);
   const spo2 = filtered.map(d=>d.spo2_pct).filter(v=>v!=null);
 
+  const tracked = filtered.filter(d =>
+    d.strain != null || d.recovery_score != null || d.sleep_performance_pct != null).length;
   const dates = filtered.map(d=>d.date).filter(Boolean).sort();
   document.getElementById('header-sub').textContent =
-    dates.length ? `${dates[0]} → ${dates[dates.length-1]} · ${dates.length} days` : 'No data';
+    dates.length ? `${dates[0]} → ${dates[dates.length-1]} · ${tracked} tracked days` : 'No data';
 
   const defs = [
     ['Recovery',    rec.length  ? avg(rec).toFixed(0)+'%' : '—',  'c-recovery',  avg(rec)?.toFixed(0)+'% avg'],
@@ -794,7 +815,7 @@ function renderKPI() {
     ['Sleep Perf',  sp.length   ? avg(sp).toFixed(0)+'%' : '—',   'c-sleep',    ''],
     ['Resp Rate',   resp.length ? avg(resp).toFixed(2) : '—',      'c-resp',     'br/min'],
     ['SpO2',        spo2.length ? avg(spo2).toFixed(1)+'%' : '—', 'c-spo2',     ''],
-    ['Days',        filtered.length, 'c-days', filtWorkouts.length+' workouts'],
+    ['Days',        tracked, 'c-days', filtWorkouts.length+' workouts'],
   ];
   document.getElementById('kpi-strip').innerHTML = defs.map(([l,v,cls,sub]) =>
     `<div class="kpi-card ${cls}">
