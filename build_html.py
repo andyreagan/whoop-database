@@ -10,8 +10,44 @@ Usage:
 import argparse
 import json
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+
+
+def compute_sri(con: sqlite3.Connection) -> dict[str, float]:
+    """
+    Sleep Regularity Index per date: minute-by-minute sleep/wake concordance
+    between this day and the next, scaled so 100 = identical schedule and
+    -100 = perfectly inverted (0 ≈ random).  Uses every sleep episode (naps
+    included), localized via each episode's own timezone offset.
+    """
+    eps = con.execute(
+        "SELECT start, end, timezone_offset FROM sleeps "
+        "WHERE start IS NOT NULL AND end IS NOT NULL"
+    ).fetchall()
+
+    minutes: dict[str, list[bool]] = {}   # local date → 1440 asleep flags
+    for r in eps:
+        off  = r["timezone_offset"] or "+00:00"
+        sign = -1 if off.startswith("-") else 1
+        delta = sign * timedelta(hours=int(off[1:3]), minutes=int(off[4:6]))
+        s = datetime.fromisoformat(r["start"].replace("Z", "+00:00")) + delta
+        e = datetime.fromisoformat(r["end"].replace("Z", "+00:00")) + delta
+        t = s.replace(second=0, microsecond=0)
+        while t < e:
+            arr = minutes.setdefault(t.date().isoformat(), [False] * 1440)
+            arr[t.hour * 60 + t.minute] = True
+            t += timedelta(minutes=1)
+
+    sri: dict[str, float] = {}
+    for dkey, arr in minutes.items():
+        nkey = (date.fromisoformat(dkey) + timedelta(days=1)).isoformat()
+        nxt = minutes.get(nkey)
+        if nxt is None:
+            continue   # next day untracked → would fake-match on "awake"
+        match = sum(a == b for a, b in zip(arr, nxt))
+        sri[dkey] = round(200 * match / 1440 - 100, 1)
+    return sri
 
 
 def load_data(db_path: str) -> dict:
@@ -61,10 +97,21 @@ def load_data(db_path: str) -> dict:
         ORDER BY start ASC
     """).fetchall()
 
+    sri = compute_sri(con)
+    consistency = dict(con.execute("""
+        SELECT date, AVG(sleep_consistency_pct)
+        FROM sleeps
+        WHERE nap = 0 AND sleep_consistency_pct IS NOT NULL
+        GROUP BY date
+    """).fetchall())
+
     # Fill missing calendar days with all-null rows so charts render real
     # gaps (instead of splicing time out) and rolling windows stay true
     # calendar windows.
     rows = [dict(r) for r in daily]
+    for r in rows:
+        r["sri"] = sri.get(r["date"])
+        r["sleep_consistency_pct"] = consistency.get(r["date"])
     if rows:
         by_date = {r["date"]: r for r in rows}
         nulls   = {k: None for k in rows[0] if k != "date"}
@@ -776,7 +823,7 @@ const CARD_FIELDS = {
   resp:'respiratory_rate', spo2:'spo2_pct', skin:'skin_temp_celsius',
   tib:'sleep_total_in_bed_min', rem:'sleep_rem_min', sws:'sleep_sws_min',
   light:'sleep_light_min', awake:'sleep_awake_min', latency:'sleep_latency_min',
-  dist:'sleep_disturbances',
+  dist:'sleep_disturbances', sri:'sri', consist:'sleep_consistency_pct',
 };
 const CARD_COLORS = {
   recovery:'var(--green)', hrv:'var(--accent)', rhr:'var(--blue)',
@@ -785,10 +832,12 @@ const CARD_COLORS = {
   skin:'var(--accent)', tib:'var(--blue)', rem:'var(--purple)',
   sws:'var(--teal)', light:'var(--blue)', awake:'#9ca3af',
   latency:'var(--yellow)', dist:'var(--red)',
+  sri:'var(--accent)', consist:'var(--green)',
 };
 const CARD_DECIMALS = {
   recovery:0, hrv:1, rhr:0, strain:1, sleep:0, resp:2, spo2:1,
   skin:1, tib:1, rem:1, sws:1, light:1, awake:1, latency:1, dist:0,
+  sri:0, consist:0,
 };
 
 // ── KPI STRIP ─────────────────────────────────────────────────────────────
@@ -906,6 +955,12 @@ function renderSleep() {
   document.getElementById('sleep-charts').innerHTML = [
     buildMetricCard(filtered, {id:'sleep', title:'Sleep Performance',
       field:'sleep_performance_pct', color:'var(--purple)', unit:'%', decimals:0,
+      rollWindows:[1,7,14,30,90], h:150}),
+    buildMetricCard(filtered, {id:'sri', title:'Sleep Regularity Index (SRI)',
+      field:'sri', color:'var(--accent)', unit:'', decimals:0,
+      rollWindows:[1,7,14,30,90], h:150}),
+    buildMetricCard(filtered, {id:'consist', title:'Sleep Consistency (WHOOP)',
+      field:'sleep_consistency_pct', color:'var(--green)', unit:'%', decimals:0,
       rollWindows:[1,7,14,30,90], h:150}),
     buildMetricCard(filtered, {id:'tib', title:'Time in Bed',
       field:'sleep_total_in_bed_min', color:'var(--blue)', unit:' min', decimals:0,
@@ -1161,6 +1216,8 @@ const LT_METRICS = [
   {id:'rem',      title:'REM Sleep',             field:'sleep_rem_min',          color:'var(--purple)', unit:' min',    decimals:0},
   {id:'sws',      title:'Slow-Wave Sleep',       field:'sleep_sws_min',          color:'var(--teal)',   unit:' min',    decimals:0},
   {id:'dist',     title:'Sleep Disturbances',    field:'sleep_disturbances',     color:'var(--red)',    unit:'',        decimals:0},
+  {id:'sri',      title:'Sleep Regularity (SRI)',field:'sri',                    color:'var(--accent)', unit:'',        decimals:1},
+  {id:'consist',  title:'Sleep Consistency',     field:'sleep_consistency_pct',  color:'var(--green)',  unit:'%',       decimals:0},
 ];
 
 function renderLongTerm() {
