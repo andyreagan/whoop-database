@@ -410,6 +410,30 @@ CREATE TABLE IF NOT EXISTS workouts (
     fetched_at              TEXT
 );
 
+CREATE TABLE IF NOT EXISTS sleeps (
+    id                      TEXT PRIMARY KEY,
+    cycle_id                INTEGER,
+    date                    TEXT,       -- wake date (local calendar date of sleep end)
+    start                   TEXT,       -- UTC ISO-8601
+    end                     TEXT,       -- UTC ISO-8601
+    timezone_offset         TEXT,       -- e.g. "-05:00" — needed to localize start/end
+    nap                     INTEGER,    -- 0/1
+    score_state             TEXT,       -- SCORED / PENDING_SCORE / UNSCORABLE
+    sleep_performance_pct   REAL,
+    sleep_consistency_pct   REAL,
+    sleep_efficiency_pct    REAL,
+    respiratory_rate        REAL,
+    total_in_bed_ms         INTEGER,
+    light_ms                INTEGER,
+    rem_ms                  INTEGER,
+    slow_wave_ms            INTEGER,
+    awake_ms                INTEGER,
+    no_data_ms              INTEGER,
+    sleep_cycle_count       INTEGER,
+    disturbance_count       INTEGER,
+    fetched_at              TEXT
+);
+
 CREATE TABLE IF NOT EXISTS meta (
     key     TEXT PRIMARY KEY,
     value   TEXT
@@ -602,6 +626,34 @@ def sleep_to_day_dict(sleep: dict) -> dict:
     }
 
 
+def sleep_to_row(sleep: dict, date: Optional[str]) -> dict:
+    score   = sleep.get("score") or {}
+    staging = score.get("stage_summary") or {}
+    return {
+        "id":                    sleep.get("id"),
+        "cycle_id":              sleep.get("cycle_id"),
+        "date":                  date,
+        "start":                 sleep.get("start"),
+        "end":                   sleep.get("end"),
+        "timezone_offset":       sleep.get("timezone_offset"),
+        "nap":                   1 if sleep.get("nap") else 0,
+        "score_state":           sleep.get("score_state"),
+        "sleep_performance_pct": score.get("sleep_performance_percentage"),
+        "sleep_consistency_pct": score.get("sleep_consistency_percentage"),
+        "sleep_efficiency_pct":  score.get("sleep_efficiency_percentage"),
+        "respiratory_rate":      score.get("respiratory_rate"),
+        "total_in_bed_ms":       staging.get("total_in_bed_time_milli"),
+        "light_ms":              staging.get("total_light_sleep_time_milli"),
+        "rem_ms":                staging.get("total_rem_sleep_time_milli"),
+        "slow_wave_ms":          staging.get("total_slow_wave_sleep_time_milli"),
+        "awake_ms":              staging.get("total_awake_time_milli"),
+        "no_data_ms":            staging.get("total_no_data_time_milli"),
+        "sleep_cycle_count":     staging.get("sleep_cycle_count"),
+        "disturbance_count":     staging.get("disturbance_count"),
+        "fetched_at":            now_utc(),
+    }
+
+
 def workout_to_row(wkt: dict, date: str) -> dict:
     score    = wkt.get("score") or {}
     zones    = score.get("zone_durations") or {}   # API field is "zone_durations"
@@ -644,6 +696,16 @@ def upsert_daily(con: sqlite3.Connection, row: dict) -> None:
     upd   = ", ".join(f"{c}=excluded.{c}" for c in cols if c != "date")
     sql   = (f"INSERT INTO daily ({names}) VALUES ({ph}) "
              f"ON CONFLICT(date) DO UPDATE SET {upd}")
+    con.execute(sql, list(row.values()))
+
+
+def upsert_sleep(con: sqlite3.Connection, row: dict) -> None:
+    cols  = list(row.keys())
+    ph    = ", ".join("?" * len(cols))
+    names = ", ".join(f'"{c}"' for c in cols)
+    upd   = ", ".join(f'"{c}"=excluded."{c}"' for c in cols if c != "id")
+    sql   = (f"INSERT INTO sleeps ({names}) VALUES ({ph}) "
+             f"ON CONFLICT(id) DO UPDATE SET {upd}")
     con.execute(sql, list(row.values()))
 
 
@@ -717,11 +779,13 @@ def _pull_range(client: WhoopClient, con: sqlite3.Connection,
     print("  Fetching sleeps …", flush=True)
     sleep_count = 0
     for sleep in client.iter_sleeps(start=start_iso, end=end_iso):
+        # Use the end date of sleep as the "wake date" → assign to that calendar day
+        date = _iso_to_date(sleep.get("end") or sleep.get("start"))
+        # Store every sleep episode (naps included) with start/end timestamps
+        upsert_sleep(con, sleep_to_row(sleep, date))
         # Only use "primary" (non-nap) sleeps for the daily row
         if sleep.get("nap"):
             continue
-        # Use the end date of sleep as the "wake date" → assign to that calendar day
-        date = _iso_to_date(sleep.get("end") or sleep.get("start"))
         if not date:
             continue
         if date not in days:
