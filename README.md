@@ -92,6 +92,39 @@ Prints:
 
 ---
 
+## Account-export backfill (journal, sleep need/debt, timezone)
+
+The developer API doesn't expose everything WHOOP has. Request a full account
+export in the app (More → App Settings → Data Export); it arrives as
+`my_whoop_data_YYYY_MM_DD.zip`. Drop it in this directory and run:
+
+```bash
+python3 backfill_export.py            # or --dry-run first
+```
+
+This adds the export-only data on top of the API-built database:
+
+- **`journal` table** — daily journal answers (alcohol, caffeine, screen in
+  bed, …), keyed by wake date. Not available via the API at all.
+  **Privacy:** since `whoop.db` is published, only questions on the
+  `PUBLIC_QUESTIONS` allowlist in `backfill_export.py` are stored here, and
+  free-text notes are never stored (there is no notes column). The complete
+  journal — every question plus notes — goes to `journal_private.db`, which
+  is gitignored along with the raw export zip. New questions WHOOP adds
+  default to private until reviewed and allowlisted.
+- **`daily.sleep_need_min` / `daily.sleep_debt_min`** — WHOOP's computed
+  sleep need and accumulated debt.
+- **`daily.timezone_offset`** — per-day timezone (e.g. `-04:00`).
+
+Export rows have no cycle IDs and use local sleep-onset timestamps; the script
+matches them to `daily` rows via UTC-converted cycle start against
+`daily.cycle_start`. Idempotent — re-run with a newer export to extend. Note
+the export is a snapshot: journal data only stays current if you re-export
+periodically. The export has **no step counts** (steps never leave the WHOOP
+app except via Apple Health writes).
+
+---
+
 ## GitHub / cron workflow
 
 The database file `whoop.db` is checked into the repo so you always have a

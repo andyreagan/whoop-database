@@ -13,3 +13,8 @@ dist/
 .DS_Store
 Thumbs.db
 .env
+
+# WHOOP account export + private journal (never publish)
+my_whoop_data_*.zip
+journal_private.db
+whoop.db.bak*
