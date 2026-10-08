@@ -86,6 +86,7 @@ _REQUEST_DELAY_S      = 1.0        # seconds between requests (60 req/min)
 _PER_MINUTE_LIMIT     = 90         # back off when we've sent this many in 60s
 _PER_MINUTE_WINDOW_S  = 60
 _PER_DAY_LIMIT        = 9900       # soft cap — warn and stop before hard 10 000
+_HTTP_TIMEOUT_S       = 60         # per-request timeout; a silent API must not hang the run
 
 _request_times: list[float] = []   # monotonic timestamps of recent requests
 
@@ -247,7 +248,7 @@ class WhoopClient:
             "refresh_token": self.refresh_token,
             "client_id":     self.client_id,
             "client_secret": self.client_secret,
-        })
+        }, timeout=_HTTP_TIMEOUT_S)
         resp.raise_for_status()
         data = resp.json()
         self.access_token  = data["access_token"]
@@ -266,7 +267,8 @@ class WhoopClient:
 
         url = f"{WHOOP_API_BASE}{path}"
         headers = {"Authorization": f"Bearer {self.access_token}"}
-        resp = self.session.get(url, headers=headers, params=params or {})
+        resp = self.session.get(url, headers=headers, params=params or {},
+                                timeout=_HTTP_TIMEOUT_S)
         self._last_req = time.monotonic()
         _record_request()
 
