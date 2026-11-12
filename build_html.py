@@ -130,229 +130,26 @@ def load_data(db_path: str) -> dict:
 
 
 HTML_TEMPLATE = r"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-site="whoop">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ar-repo" content="whoop-database">
+<meta name="ar-generated" content="{generated}">
 <title>Andy's WHOOP Dashboard</title>
+<link rel="stylesheet" href="ar.css">
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --sidebar-w: 220px;
-  --bg:        #f4f5f7;
-  --surface:   #ffffff;
-  --sidebar-bg:#111827;
-  --sidebar-text:#9ca3af;
-  --sidebar-active:#ffffff;
-  --sidebar-hover:#1f2937;
-  --border:    #e5e7eb;
-  --text:      #111827;
-  --muted:     #6b7280;
-  --accent:    #ec4899;   /* fitIQ-ish pink */
-  --teal:      #06b6d4;
-  --green:     #10b981;
-  --yellow:    #f59e0b;
-  --red:       #ef4444;
-  --purple:    #8b5cf6;
-  --blue:      #3b82f6;
-  --radius:    10px;
-  --shadow:    0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
-  --font:      'Inter', system-ui, -apple-system, sans-serif;
+/* phase-trajectory ramp: old → new reads faint → prominent in either theme */
+:root { --ramp-from: #c4b5fd; --ramp-to: #4c1d95; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) { --ramp-from: #4a3f86; --ramp-to: #d9d0ff; }
 }
-body { font-family: var(--font); background: var(--bg); color: var(--text);
-       font-size: 14px; line-height: 1.5; display: flex; min-height: 100vh; }
-
-/* ── SIDEBAR ── */
-.sidebar {
-  width: var(--sidebar-w); background: var(--sidebar-bg); color: var(--sidebar-text);
-  display: flex; flex-direction: column; position: fixed; top: 0; left: 0;
-  height: 100vh; overflow-y: auto; z-index: 100; flex-shrink: 0;
-}
-.sidebar-logo {
-  padding: 20px 18px 12px; font-size: 1.2rem; font-weight: 800;
-  color: var(--accent); letter-spacing: -.02em; flex-shrink: 0;
-}
-.sidebar-logo span { color: #fff; }
-.nav-section { padding: 8px 0; }
-.nav-section-title {
-  font-size: 0.65rem; text-transform: uppercase; letter-spacing: .1em;
-  color: #4b5563; padding: 6px 18px 4px; font-weight: 600;
-}
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 18px; cursor: pointer; border-radius: 0;
-  font-size: 0.85rem; color: var(--sidebar-text);
-  transition: background .12s, color .12s;
-  white-space: nowrap;
-}
-.nav-item:hover { background: var(--sidebar-hover); color: #e5e7eb; }
-.nav-item.active { color: var(--sidebar-active); font-weight: 600; background: #1f2937; }
-.nav-item .icon { font-size: 1rem; width: 18px; text-align: center; flex-shrink: 0; }
-
-/* ── MAIN ── */
-.main { margin-left: var(--sidebar-w); flex: 1; min-width: 0; }
-.topbar {
-  background: var(--surface); border-bottom: 1px solid var(--border);
-  padding: 14px 28px; display: flex; align-items: center;
-  justify-content: space-between; position: sticky; top: 0; z-index: 50;
-}
-.topbar h1 { font-size: 1rem; font-weight: 700; color: var(--text); }
-.topbar .subtitle { font-size: 0.8rem; color: var(--muted); margin-top: 1px; }
-.range-btns { display: flex; gap: 4px; }
-.range-btn {
-  padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600;
-  cursor: pointer; border: 1px solid var(--border); background: var(--surface);
-  color: var(--muted); transition: all .12s;
-}
-.range-btn:hover { border-color: var(--accent); color: var(--accent); }
-.range-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-.content { padding: 24px 28px; }
-
-/* ── SECTION ── */
-.section { display: none; }
-.section.active { display: block; }
-
-/* ── SUMMARY STRIP ── */
-.kpi-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px; margin-bottom: 24px;
-}
-.kpi-card {
-  background: var(--surface); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 16px;
-  border-top: 3px solid transparent;
-}
-.kpi-card .kpi-label {
-  font-size: 0.68rem; text-transform: uppercase; letter-spacing: .07em;
-  color: var(--muted); margin-bottom: 4px; font-weight: 600;
-}
-.kpi-card .kpi-value { font-size: 1.6rem; font-weight: 800; line-height: 1; }
-.kpi-card .kpi-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
-.kpi-card.c-recovery  { border-top-color: var(--green); }
-.kpi-card.c-hrv       { border-top-color: var(--accent); }
-.kpi-card.c-rhr       { border-top-color: var(--blue); }
-.kpi-card.c-strain    { border-top-color: var(--yellow); }
-.kpi-card.c-sleep     { border-top-color: var(--purple); }
-.kpi-card.c-resp      { border-top-color: var(--teal); }
-.kpi-card.c-spo2      { border-top-color: var(--teal); }
-.kpi-card.c-days      { border-top-color: var(--border); }
-
-/* ── METRIC GRID ── */
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
-}
-.metric-grid.wide { grid-template-columns: 1fr; }
-.metric-grid.three { grid-template-columns: repeat(3, 1fr); }
-@media (max-width: 900px) {
-  .metric-grid, .metric-grid.three { grid-template-columns: 1fr; }
-}
-
-/* ── METRIC CARD ── */
-.metric-card {
-  background: var(--surface); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 20px;
-}
-.metric-card-header {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  margin-bottom: 4px; gap: 12px;
-}
-.metric-card-title {
-  font-size: 0.8rem; font-weight: 700; color: var(--text);
-  text-transform: uppercase; letter-spacing: .05em;
-}
-.metric-card-val {
-  font-size: 1.8rem; font-weight: 800; line-height: 1.1;
-  margin-bottom: 2px;
-}
-.metric-card-sub { font-size: 0.75rem; color: var(--muted); margin-bottom: 12px; }
-.roll-btns { display: flex; gap: 3px; flex-shrink: 0; }
-.roll-btn {
-  padding: 2px 7px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;
-  cursor: pointer; border: 1px solid var(--border); background: transparent;
-  color: var(--muted); transition: all .1s;
-}
-.roll-btn:hover { color: var(--text); border-color: #aaa; }
-.roll-btn.active { background: var(--text); color: #fff; border-color: var(--text); }
-
-.chart-area { width: 100%; overflow: hidden; }
-svg.linechart { display: block; width: 100%; overflow: visible; }
-
-/* recovery colour */
-.col-green  { color: var(--green); }
-.col-yellow { color: var(--yellow); }
-.col-red    { color: var(--red); }
-.col-blue   { color: var(--blue); }
-.col-purple { color: var(--purple); }
-.col-teal   { color: var(--teal); }
-.col-accent { color: var(--accent); }
-
-/* ── TABLES ── */
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-thead th {
-  background: var(--bg); color: var(--muted); font-weight: 600;
-  text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
-  white-space: nowrap; cursor: pointer; user-select: none;
-}
-thead th:hover { color: var(--text); }
-thead th.sorted-asc::after  { content: ' ↑'; color: var(--accent); }
-thead th.sorted-desc::after { content: ' ↓'; color: var(--accent); }
-tbody tr { border-bottom: 1px solid var(--border); }
-tbody tr:hover { background: var(--bg); }
-tbody td { padding: 7px 10px; white-space: nowrap; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* recovery badge */
-.rec-badge {
-  display: inline-block; padding: 1px 8px; border-radius: 99px;
-  font-size: 0.75rem; font-weight: 700;
-}
-.rec-green  { background: #d1fae5; color: #065f46; }
-.rec-yellow { background: #fef3c7; color: #92400e; }
-.rec-red    { background: #fee2e2; color: #991b1b; }
-
-.badge {
-  display: inline-block; padding: 1px 8px; border-radius: 99px;
-  font-size: 0.72rem; font-weight: 600;
-  background: #f3f4f6; color: #374151;
-}
-
-/* pagination */
-.pagination { display: flex; gap: 6px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-.pagination button {
-  background: var(--surface); border: 1px solid var(--border);
-  color: var(--text); border-radius: 6px; padding: 4px 10px;
-  cursor: pointer; font-size: 0.8rem;
-}
-.pagination button:hover, .pagination button.active {
-  border-color: var(--accent); color: var(--accent);
-}
-.pagination .info { color: var(--muted); font-size: 0.8rem; }
-
-.empty { padding: 40px; text-align: center; color: var(--muted); }
-
-/* long-term note banner */
-.longterm-note {
-  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: var(--radius);
-  padding: 12px 16px; margin-bottom: 20px; font-size: 0.82rem; color: #1e40af;
-  line-height: 1.5;
-}
-
-/* sleep stage legend row */
-.stage-legend { display: flex; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
-.stage-dot {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 0.72rem; color: var(--muted);
-}
-.stage-dot span {
-  width: 10px; height: 10px; border-radius: 2px; display: inline-block;
-}
+:root[data-theme="dark"] { --ramp-from: #4a3f86; --ramp-to: #d9d0ff; }
+#ph-readout { font-size: 22px; font-weight: 800; fill: var(--muted); opacity: .45; }
+.ph-lbl { font-weight: 600; fill: var(--muted); }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="ar.js"></script>
 </head>
 <body>
 
@@ -415,7 +212,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 <div class="main">
   <div class="topbar">
     <div>
-      <div class="topbar h1" id="section-title">Dashboard</div>
+      <h1 id="section-title">Dashboard</h1>
       <div class="subtitle" id="header-sub">Loading…</div>
     </div>
     <div class="range-btns" id="range-btns">
@@ -530,7 +327,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
     <!-- ── LONG-TERM ── -->
     <div class="section" id="section-longterm">
-      <div class="longterm-note">
+      <div class="note">
         These charts always show your <strong>complete WHOOP history</strong>,
         independent of the range filter above. Each point is the monthly average.
         Use the granularity toggle on each card to switch between monthly and quarterly.
@@ -541,7 +338,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
             <div>
               <div class="metric-card-title">Sleep Duration × Regularity — Monthly Trajectory</div>
               <div class="metric-card-sub">Each dot is one month (avg nightly sleep vs. SRI),
-                connected in time order. Light&nbsp;→&nbsp;dark&nbsp;=&nbsp;past&nbsp;→&nbsp;present.</div>
+                connected in time order. Faint&nbsp;→&nbsp;bold&nbsp;=&nbsp;past&nbsp;→&nbsp;present.</div>
             </div>
             <div class="roll-btns"><button class="roll-btn" id="phase-replay">▶ Replay</button></div>
           </div>
@@ -583,7 +380,7 @@ const fmtMin = m => {
 };
 const fmtKm = m => m == null ? '—' : (m/1000).toFixed(1);
 const zFmt  = ms => ms == null ? '—' : Math.round(ms/60000)+'m';
-const recClass = v => v >= 67 ? 'rec-green' : v >= 34 ? 'rec-yellow' : 'rec-red';
+const recClass = v => v >= 67 ? 'good' : v >= 34 ? 'warn' : 'bad';
 
 function rolling(data, field, n) {
   return data.map((_, i) => {
@@ -635,143 +432,35 @@ document.querySelectorAll('.nav-item').forEach(item => {
   });
 });
 
-// ── SVG LINE CHART ────────────────────────────────────────────────────────
-function lineChart(values, labels, opts={}) {
-  const W = 560, H = opts.h || 130;
-  const pad = {t:24, r:10, b:28, l:44};
-  const w = W-pad.l-pad.r, h = H-pad.t-pad.b;
-  const valid = values.filter(v=>v!=null);
-  if (!valid.length) return '<div class="empty" style="height:100px">No data in range</div>';
-
-  const mn = opts.min ?? Math.min(...valid);
-  const mx = opts.max ?? Math.max(...valid);
-  const range = mx-mn || 1;
-  const color = opts.color || 'var(--accent)';
-  const id = opts.id || Math.random().toString(36).slice(2);
-
-  const px = i => pad.l + i/(Math.max(values.length-1,1)) * w;
-  const py = v => pad.t + h - (v-mn)/range * h;
-
-  // Build line path and area path segment-by-segment so gaps don't
-  // produce diagonal fills — each contiguous run gets its own closed shape.
-  let line = '';
-  const areaSegments = [];
-  let segLine = '', segFirstX = null, segLastX = null;
-
-  values.forEach((v, i) => {
-    if (v == null) {
-      // close off any open segment
-      if (segLine && segFirstX !== null) {
-        areaSegments.push(
-          segLine +
-          `L${segLastX},${(pad.t+h).toFixed(1)}` +
-          `L${segFirstX},${(pad.t+h).toFixed(1)}Z`
-        );
-        segLine = ''; segFirstX = null; segLastX = null;
-      }
-      return;
-    }
-    const x = px(i).toFixed(1), y = py(v).toFixed(1);
-    if (segLine === '') {
-      line    += `M${x},${y}`;
-      segLine  = `M${x},${y}`;
-      segFirstX = x;
-    } else {
-      line    += `L${x},${y}`;
-      segLine += `L${x},${y}`;
-    }
-    segLastX = x;
-  });
-  // close final segment
-  if (segLine && segFirstX !== null) {
-    areaSegments.push(
-      segLine +
-      `L${segLastX},${(pad.t+h).toFixed(1)}` +
-      `L${segFirstX},${(pad.t+h).toFixed(1)}Z`
-    );
-  }
-  const area = areaSegments.join(' ');
-
-  // y ticks — 4 levels
-  const ticks = 4;
-  const yT = Array.from({length:ticks+1},(_,i)=>mn+range*i/ticks);
-  const yTsvg = yT.map(v => {
-    const y=py(v).toFixed(1);
-    const lbl = opts.yFmt ? opts.yFmt(v) : v.toFixed(1);
-    return `<line x1="${pad.l}" x2="${W-pad.r}" y1="${y}" y2="${y}"
-                  stroke="#e5e7eb" stroke-width="1"/>
-            <text x="${pad.l-4}" y="${y}" text-anchor="end" dominant-baseline="middle"
-                  font-size="10" fill="#9ca3af">${lbl}</text>`;
-  }).join('');
-
-  // x labels — ~6 evenly spaced, format chosen from the date span so the
-  // year is visible on multi-year charts (MM-DD alone reads as garbage there)
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const parseL = l => {
-    const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(l||'');
-    return m ? new Date(+m[1], +m[2]-1, m[3] ? +m[3] : 1) : null;
-  };
-  const dFirst = parseL(labels.find(l => parseL(l)));
-  const dLast  = parseL([...labels].reverse().find(l => parseL(l)));
-  const spanDays = dFirst && dLast ? (dLast - dFirst) / 86400000 : 0;
-  const fmtTick = l => {
-    if (/^\d{4}-Q\d$/.test(l||'')) return l;
-    const d = parseL(l);
-    if (!d) return l || '';
-    if (spanDays > 365 || /^\d{4}-\d{2}$/.test(l))
-      return `${MONTHS[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}`;
-    return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
-  };
-  const step = Math.max(1,Math.floor(labels.length/6));
-  const xLbls = labels.map((l,i) => {
-    const isLast = i === labels.length-1;
-    if(i%step!==0 && !isLast) return '';
-    // drop the stepped tick that would crowd the final one
-    if(!isLast && labels.length-1-i < step/2) return '';
-    return `<text x="${px(i).toFixed(1)}" y="${H-4}" text-anchor="middle"
-                  font-size="10" fill="#9ca3af">${fmtTick(l)}</text>`;
-  }).join('');
-
-  // dots at first and last non-null values
-  const firstI = values.findIndex(v => v != null);
-  const lastI  = values.reduce((acc, v, i) => v != null ? i : acc, -1);
-  const dotSvg = firstI >= 0
-    ? `<circle cx="${px(firstI).toFixed(1)}" cy="${py(values[firstI]).toFixed(1)}"
-               r="3" fill="${color}"/>
-       <circle cx="${px(lastI).toFixed(1)}" cy="${py(values[lastI]).toFixed(1)}"
-               r="3.5" fill="${color}"/>` : '';
-
-  return `<svg class="linechart" viewBox="0 0 ${W} ${H}"
-               preserveAspectRatio="xMinYMin meet" style="height:${H}px">
-    <defs>
-      <linearGradient id="g${id}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${color}" stop-opacity="0.18"/>
-        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
-      </linearGradient>
-    </defs>
-    ${yTsvg}
-    <path d="${area}" fill="url(#g${id})"/>
-    <path d="${line}" fill="none" stroke="${color}" stroke-width="2"
-          stroke-linejoin="round" stroke-linecap="round"/>
-    ${dotSvg}
-    ${xLbls}
-  </svg>`;
-}
+// ── CHARTS ────────────────────────────────────────────────────────────────
+// Cards are built as HTML strings; their charts are queued here and drawn
+// (with AR.lineChart, d3) once the HTML is in the document.
+const drawQ = [];
+const flushCharts = () => drawQ.splice(0).forEach(f => f());
 
 // ── METRIC CARD BUILDER ───────────────────────────────────────────────────
-// opts: { id, title, field, color, unit, decimals, rollWindows, yFmt, extraSvg, h }
+// opts: { id, title, field, color, unit, decimals, rollWindows, yFmt, h }
+const cardOpts = {};   // "<section>/<id>" → opts, for re-drawing on roll-window clicks
+
+function drawCard(el) {
+  const o = cardOpts[el.dataset.key];
+  const n = rollState[o.id];
+  AR.lineChart(el, {
+    x: filtered.map(d => d.date),
+    y: n === 1 ? filtered.map(d => d[o.field]) : rolling(filtered, o.field, n),
+    color: o.color, height: o.h || 130,
+    yFmt: o.yFmt || (v => v.toFixed(o.decimals ?? 1)),
+  });
+}
+
 function buildMetricCard(data, opts) {
   const { id, title, field, color, unit='', decimals=1,
-          rollWindows=[7,14,30,90], h=130 } = opts;
+          rollWindows=[7,14,30,90] } = opts;
 
   if (!rollState[id]) rollState[id] = rollWindows[1] || rollWindows[0];
+  if (!rollWindows.includes(rollState[id])) rollState[id] = rollWindows[rollWindows.length-1];
 
-  const raw    = data.map(d => d[field]);
-  const labels = data.map(d => d.date || '');
-  const n      = rollState[id];
-  const values = n === 1 ? raw : rolling(data, field, n);
-
-  const valid = raw.filter(v=>v!=null);
+  const valid = data.map(d => d[field]).filter(v=>v!=null);
   const cur   = valid.length ? valid[valid.length-1] : null;
   const mn    = valid.length ? Math.min(...valid) : null;
   const mx    = valid.length ? Math.max(...valid) : null;
@@ -787,11 +476,9 @@ function buildMetricCard(data, opts) {
              data-card="${id}" data-win="${w}">${w}d</button>`
   ).join('');
 
-  const svg = lineChart(values, labels, {
-    id, color,
-    yFmt: opts.yFmt || (v => v.toFixed(decimals)),
-    h
-  });
+  const key = activeSection + '/' + id;
+  cardOpts[key] = opts;
+  drawQ.push(() => drawCard(document.querySelector(`.chart-area[data-key="${key}"]`)));
 
   return `<div class="metric-card">
     <div class="metric-card-header">
@@ -802,56 +489,20 @@ function buildMetricCard(data, opts) {
       </div>
       <div class="roll-btns">${rollBtns}</div>
     </div>
-    <div class="chart-area" id="chart-${id}">${svg}</div>
+    <div class="chart-area" data-key="${key}"></div>
   </div>`;
 }
 
-// Rolling window button clicks (event delegation)
+// Rolling window button clicks (event delegation): redraw just that card's chart
 document.addEventListener('click', e => {
-  const b = e.target.closest('.roll-btn');
+  const b = e.target.closest('.roll-btn[data-win]');
   if (!b) return;
-  const cid = b.dataset.card, win = parseInt(b.dataset.win);
-  rollState[cid] = win;
-  // re-render just this card's chart area
-  const el = document.getElementById('chart-'+cid);
-  if (!el) return;
-  // find parent card, re-render
-  b.closest('.metric-card').querySelectorAll('.roll-btn').forEach(rb => {
-    rb.classList.toggle('active', parseInt(rb.dataset.win)===win);
-  });
-  const raw    = filtered.map(d => d[cid] || d[cid.replace('-','_')]);
-  // use field mapping
-  const field  = CARD_FIELDS[cid];
-  const color  = CARD_COLORS[cid];
-  const dec    = CARD_DECIMALS[cid] || 1;
-  const values = win===1 ? filtered.map(d=>d[field]) : rolling(filtered, field, win);
-  const labels = filtered.map(d=>d.date||'');
-  el.innerHTML = lineChart(values, labels, {id:cid, color,
-    yFmt: v=>v.toFixed(dec), h: parseInt(el.closest('.metric-card').dataset.h)||130});
+  const win = parseInt(b.dataset.win), card = b.closest('.metric-card');
+  rollState[b.dataset.card] = win;
+  card.querySelectorAll('.roll-btn').forEach(rb =>
+    rb.classList.toggle('active', parseInt(rb.dataset.win) === win));
+  drawCard(card.querySelector('.chart-area'));
 });
-
-const CARD_FIELDS = {
-  recovery:'recovery_score', hrv:'hrv_rmssd_ms', rhr:'resting_hr',
-  strain:'strain', 'strain-roll':'strain', sleep:'sleep_performance_pct',
-  resp:'respiratory_rate', spo2:'spo2_pct', skin:'skin_temp_celsius',
-  tib:'sleep_total_in_bed_min', rem:'sleep_rem_min', sws:'sleep_sws_min',
-  light:'sleep_light_min', awake:'sleep_awake_min', latency:'sleep_latency_min',
-  dist:'sleep_disturbances', sri:'sri', consist:'sleep_consistency_pct',
-};
-const CARD_COLORS = {
-  recovery:'var(--green)', hrv:'var(--accent)', rhr:'var(--blue)',
-  strain:'var(--yellow)', 'strain-roll':'var(--yellow)',
-  sleep:'var(--purple)', resp:'var(--teal)', spo2:'var(--teal)',
-  skin:'var(--accent)', tib:'var(--blue)', rem:'var(--purple)',
-  sws:'var(--teal)', light:'var(--blue)', awake:'#9ca3af',
-  latency:'var(--yellow)', dist:'var(--red)',
-  sri:'var(--accent)', consist:'var(--green)',
-};
-const CARD_DECIMALS = {
-  recovery:0, hrv:1, rhr:0, strain:1, sleep:0, resp:2, spo2:1,
-  skin:1, tib:1, rem:1, sws:1, light:1, awake:1, latency:1, dist:0,
-  sri:0, consist:0,
-};
 
 // ── KPI STRIP ─────────────────────────────────────────────────────────────
 function renderKPI() {
@@ -870,17 +521,17 @@ function renderKPI() {
     dates.length ? `${dates[0]} → ${dates[dates.length-1]} · ${tracked} tracked days` : 'No data';
 
   const defs = [
-    ['Recovery',    rec.length  ? avg(rec).toFixed(0)+'%' : '—',  'c-recovery',  avg(rec)?.toFixed(0)+'% avg'],
-    ['HRV rMSSD',   hrv.length  ? avg(hrv).toFixed(1)+' ms' : '—','c-hrv',       ''],
-    ['Resting HR',  rhr.length  ? avg(rhr).toFixed(0)+' bpm' : '—','c-rhr',      ''],
-    ['Day Strain',  str.length  ? avg(str).toFixed(1) : '—',       'c-strain',   ''],
-    ['Sleep Perf',  sp.length   ? avg(sp).toFixed(0)+'%' : '—',   'c-sleep',    ''],
-    ['Resp Rate',   resp.length ? avg(resp).toFixed(2) : '—',      'c-resp',     'br/min'],
-    ['SpO2',        spo2.length ? avg(spo2).toFixed(1)+'%' : '—', 'c-spo2',     ''],
-    ['Days',        tracked, 'c-days', filtWorkouts.length+' workouts'],
+    ['Recovery',    rec.length  ? avg(rec).toFixed(0)+'%' : '—',  'green',  avg(rec)?.toFixed(0)+'% avg'],
+    ['HRV rMSSD',   hrv.length  ? avg(hrv).toFixed(1)+' ms' : '—','accent',       ''],
+    ['Resting HR',  rhr.length  ? avg(rhr).toFixed(0)+' bpm' : '—','blue',      ''],
+    ['Day Strain',  str.length  ? avg(str).toFixed(1) : '—',       'yellow',   ''],
+    ['Sleep Perf',  sp.length   ? avg(sp).toFixed(0)+'%' : '—',   'purple',    ''],
+    ['Resp Rate',   resp.length ? avg(resp).toFixed(2) : '—',      'teal',     'br/min'],
+    ['SpO2',        spo2.length ? avg(spo2).toFixed(1)+'%' : '—', 'teal',     ''],
+    ['Days',        tracked, 'border', filtWorkouts.length+' workouts'],
   ];
   document.getElementById('kpi-strip').innerHTML = defs.map(([l,v,cls,sub]) =>
-    `<div class="kpi-card ${cls}">
+    `<div class="kpi-card" style="--kpi-color:var(--${cls})">
        <div class="kpi-label">${l}</div>
        <div class="kpi-value">${v}</div>
        ${sub?`<div class="kpi-sub">${sub}</div>`:''}
@@ -1017,21 +668,10 @@ function renderWorkouts() {
     counts[s] = (counts[s]||0)+1;
   });
   const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,15);
-  const maxC = Math.max(...sorted.map(e=>e[1]),1);
-  const rowH = 26, padL = 150, W = 560;
-  const H = rowH * sorted.length;
-  const bars = sorted.map(([name, n], i) => {
-    const bw = ((n/maxC)*(W-padL-50)).toFixed(1);
-    const y  = i * rowH;
-    return `<text x="${padL-6}" y="${y+rowH/2}" text-anchor="end"
-                  dominant-baseline="middle" font-size="12" fill="var(--text)">${name}</text>
-            <rect x="${padL}" y="${y+4}" width="${bw}" height="${rowH-8}"
-                  rx="3" fill="var(--accent)" opacity="0.75"/>
-            <text x="${padL+parseFloat(bw)+6}" y="${y+rowH/2}"
-                  dominant-baseline="middle" font-size="11" fill="var(--muted)">${n}</text>`;
-  }).join('');
-  document.getElementById('sport-bar-chart').innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;max-height:400px">${bars}</svg>`;
+  AR.hbarChart('#sport-bar-chart', {
+    labels: sorted.map(e => e[0]), values: sorted.map(e => e[1]),
+    tip: i => `<b>${sorted[i][0]}</b><br>${sorted[i][1]} workouts`,
+  });
 
   // Table
   const mul = wktSortDir;
@@ -1087,7 +727,7 @@ function renderDailyLog() {
     <td>${d.date}</td>
     <td class="num">${fmtN1(d.strain)}</td>
     <td class="num">${d.recovery_score!=null
-      ?`<span class="rec-badge ${recClass(d.recovery_score)}">${Math.round(d.recovery_score)}%</span>`
+      ?`<span class="badge ${recClass(d.recovery_score)}">${Math.round(d.recovery_score)}%</span>`
       :'—'}</td>
     <td class="num">${fmtN1(d.hrv_rmssd_ms)}</td>
     <td class="num">${fmtN0(d.resting_hr)}</td>
@@ -1136,7 +776,7 @@ document.querySelectorAll('#daily-table thead th[data-col]').forEach(th=>{
 const ltGranState = {};
 
 // Aggregate DAILY (full history, ignores filter) into monthly or quarterly buckets.
-// Returns [{label, <field>: avg}, ...]
+// Returns [{label, value: avg, n}, ...]
 function aggregateLT(field, gran) {
   const buckets = {};
   DAILY.forEach(d => {
@@ -1154,36 +794,38 @@ function aggregateLT(field, gran) {
   }));
 }
 
-function buildLTCard(opts) {
-  const { id, title, field, color, unit='', decimals=1 } = opts;
+function drawLT(m) {
+  const pts = aggregateLT(m.field, ltGranState[m.id]);
+  AR.lineChart('#ltchart-'+m.id, {
+    x: pts.map(p => p.label), y: pts.map(p => p.value),
+    color: m.color, height: 160, yFmt: v => v.toFixed(m.decimals),
+    tip: i => `<b>${AR.fmtDate(pts[i].label)}</b><br>${pts[i].value.toFixed(m.decimals)}${m.unit}` +
+              ` <span class="dim">· ${pts[i].n} days</span>`,
+  });
+}
+
+function buildLTCard(m) {
+  const { id, title, field, color, unit='', decimals=1 } = m;
   if (!ltGranState[id]) ltGranState[id] = 'month';
   const gran = ltGranState[id];
 
-  const pts    = aggregateLT(field, gran);
-  const values = pts.map(p => p.value);
-  const labels = pts.map(p => p.label);
-
-  const valid = values.filter(v=>v!=null);
-  const cur   = valid.length ? valid[valid.length-1] : null;
-  const mn    = valid.length ? Math.min(...valid) : null;
-  const mx    = valid.length ? Math.max(...valid) : null;
-  const av    = valid.length ? valid.reduce((s,v)=>s+v,0)/valid.length : null;
+  const values = aggregateLT(field, gran).map(p => p.value);
+  const cur = values.length ? values[values.length-1] : null;
+  const mn  = values.length ? Math.min(...values) : null;
+  const mx  = values.length ? Math.max(...values) : null;
+  const av  = avg(values);
 
   const curStr = cur!=null ? cur.toFixed(decimals)+unit : '—';
   const subStr = av!=null
-    ? `avg ${av.toFixed(decimals)}${unit} · min ${mn.toFixed(decimals)}${unit} · max ${mx.toFixed(decimals)}${unit} · ${pts.length} ${gran==='quarter'?'quarters':'months'}`
+    ? `avg ${av.toFixed(decimals)}${unit} · min ${mn.toFixed(decimals)}${unit} · max ${mx.toFixed(decimals)}${unit} · ${values.length} ${gran==='quarter'?'quarters':'months'}`
     : 'No data';
 
   const granBtns = ['month','quarter'].map(g =>
-    `<button class="roll-btn lt-gran-btn${ltGranState[id]===g?' active':''}"
+    `<button class="roll-btn lt-gran-btn${gran===g?' active':''}"
              data-ltcard="${id}" data-gran="${g}">${g==='month'?'Monthly':'Quarterly'}</button>`
   ).join('');
 
-  const svg = lineChart(values, labels, {
-    id: 'lt-'+id, color,
-    yFmt: opts.yFmt || (v => v.toFixed(decimals)),
-    h: 160,
-  });
+  drawQ.push(() => drawLT(m));
 
   return `<div class="metric-card">
     <div class="metric-card-header">
@@ -1194,7 +836,7 @@ function buildLTCard(opts) {
       </div>
       <div class="roll-btns">${granBtns}</div>
     </div>
-    <div class="chart-area" id="ltchart-${id}">${svg}</div>
+    <div class="chart-area" id="ltchart-${id}"></div>
   </div>`;
 }
 
@@ -1202,19 +844,12 @@ function buildLTCard(opts) {
 document.addEventListener('click', e => {
   const b = e.target.closest('.lt-gran-btn');
   if (!b) return;
-  const id = b.dataset.ltcard, gran = b.dataset.gran;
-  ltGranState[id] = gran;
+  const m = LT_METRICS.find(x => x.id === b.dataset.ltcard);
+  ltGranState[m.id] = b.dataset.gran;
   b.closest('.metric-card').querySelectorAll('.lt-gran-btn').forEach(rb =>
-    rb.classList.toggle('active', rb.dataset.gran === gran)
+    rb.classList.toggle('active', rb.dataset.gran === b.dataset.gran)
   );
-  const el = document.getElementById('ltchart-'+id);
-  if (!el) return;
-  const pts    = aggregateLT(CARD_FIELDS[id], gran);
-  const values = pts.map(p => p.value);
-  const labels = pts.map(p => p.label);
-  const color  = CARD_COLORS[id];
-  const dec    = CARD_DECIMALS[id] || 1;
-  el.innerHTML = lineChart(values, labels, {id:'lt-'+id, color, yFmt:v=>v.toFixed(dec), h:160});
+  drawLT(m);
 });
 
 const LT_METRICS = [
@@ -1236,7 +871,7 @@ const LT_METRICS = [
 function renderLongTerm() {
   document.getElementById('longterm-charts').innerHTML =
     LT_METRICS.map(m => buildLTCard(m)).join('');
-  renderPhase();
+  renderPhase(true);
 }
 
 // ── PHASE TRAJECTORY — sleep duration × SRI ───────────────────────────────
@@ -1260,13 +895,8 @@ function phasePoints() {
 
 const PH_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const phFmt = k => PH_MONTHS[+k.slice(5,7)-1] + ' ’' + k.slice(2,4);
-// sequential one-hue ramp, light (oldest) → dark (newest)
-function phRamp(t) {
-  const A=[0xc4,0xb5,0xfd], B=[0x4c,0x1d,0x95];
-  return 'rgb(' + A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',') + ')';
-}
 
-function renderPhase() {
+function renderPhase(animate) {
   const el = document.getElementById('phase-chart');
   if (!el) return;
   if (phaseRAF) { cancelAnimationFrame(phaseRAF); phaseRAF = null; }
@@ -1275,97 +905,87 @@ function renderPhase() {
   if (pts.length < 2) { el.innerHTML = '<div class="empty">Not enough data</div>'; return; }
   const N = pts.length;
 
-  const W=860, H=420, pad={t:26,r:26,b:46,l:52};
-  const xs=pts.map(p=>p.h), ys=pts.map(p=>p.s);
-  const xmn=Math.min(...xs), xmx=Math.max(...xs);
-  const ymn=Math.min(...ys), ymx=Math.max(...ys);
-  const xp=(xmx-xmn)*0.08||0.5, yp=(ymx-ymn)*0.08||2;
-  const X = v => pad.l + (v-(xmn-xp)) / ((xmx+xp)-(xmn-xp)) * (W-pad.l-pad.r);
-  const Y = v => H-pad.b - (v-(ymn-yp)) / ((ymx+yp)-(ymn-yp)) * (H-pad.t-pad.b);
+  // sequential one-hue ramp, oldest → newest (endpoints are theme tokens)
+  const css  = getComputedStyle(document.documentElement);
+  const ramp = d3.interpolateRgb(css.getPropertyValue('--ramp-from').trim(),
+                                 css.getPropertyValue('--ramp-to').trim());
 
-  // grid — recessive
-  let grid='';
-  for (let v=Math.ceil((xmn-xp)*2)/2; v<=xmx+xp; v+=0.5)
-    grid += `<line x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${pad.t}" y2="${H-pad.b}" stroke="#eef0f3"/>` +
-            `<text x="${X(v).toFixed(1)}" y="${H-pad.b+16}" text-anchor="middle" font-size="10" fill="#9ca3af">${v}h</text>`;
-  for (let i=0;i<=4;i++) {
-    const v=(ymn-yp)+((ymx+yp)-(ymn-yp))*i/4;
-    grid += `<line x1="${pad.l}" x2="${W-pad.r}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#eef0f3"/>` +
-            `<text x="${pad.l-6}" y="${Y(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="#9ca3af">${v.toFixed(0)}</text>`;
-  }
-  const axisTitles =
-    `<text x="${(pad.l+W-pad.r)/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="#6b7280">Average nightly sleep (hours)</text>` +
-    `<text x="${pad.l}" y="${pad.t-10}" font-size="11" fill="#6b7280">Sleep Regularity Index</text>`;
+  const W=860, H=420, m={t:26,r:26,b:46,l:52};
+  const pad = (a, min) => { const [lo,hi]=d3.extent(a), p=(hi-lo)*0.08||min; return [lo-p, hi+p]; };
+  const x = d3.scaleLinear().domain(pad(pts.map(p=>p.h), 0.5)).range([m.l, W-m.r]);
+  const y = d3.scaleLinear().domain(pad(pts.map(p=>p.s), 2)).range([H-m.b, m.t]);
 
-  const segs = pts.slice(1).map((p,i) =>
-    `<line class="ph-el" data-i="${i+1}" x1="${X(pts[i].h).toFixed(1)}" y1="${Y(pts[i].s).toFixed(1)}"
-           x2="${X(p.h).toFixed(1)}" y2="${Y(p.s).toFixed(1)}"
-           stroke="${phRamp((i+1)/(N-1))}" stroke-width="2" stroke-linecap="round" opacity="0"/>`
-  ).join('');
+  el.innerHTML = '';
+  const svg = d3.select(el).append('svg').attr('class','ar-chart').attr('viewBox',`0 0 ${W} ${H}`);
+  svg.append('g').attr('class','grid').attr('transform',`translate(0,${H-m.b})`)
+    .call(d3.axisBottom(x).tickValues(d3.range(Math.ceil(x.domain()[0]*2)/2, x.domain()[1], 0.5))
+      .tickSize(-(H-m.t-m.b)).tickFormat(v => v+'h').tickPadding(8));
+  svg.append('g').attr('class','grid').attr('transform',`translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(5).tickSize(-(W-m.l-m.r)).tickPadding(6));
+  svg.append('text').attr('class','axis-title').attr('x',(m.l+W-m.r)/2).attr('y',H-6)
+    .attr('text-anchor','middle').text('Average nightly sleep (hours)');
+  svg.append('text').attr('class','axis-title').attr('x',m.l).attr('y',m.t-10)
+    .text('Sleep Regularity Index');
 
-  const dots = pts.map((p,i) => {
-    const isJan = p.label.slice(5)==='01', isEnd = i===0 || i===N-1;
-    const big = isJan || isEnd;
-    let s = `<circle class="ph-el" data-i="${i}" cx="${X(p.h).toFixed(1)}" cy="${Y(p.s).toFixed(1)}"
-             r="${big?4:2.5}" fill="${phRamp(i/(N-1))}"
-             ${big?'stroke="#fff" stroke-width="1.5"':''} opacity="0"/>`;
-    if (big) s += `<text class="ph-el" data-i="${i}" x="${X(p.h).toFixed(1)}" y="${(Y(p.s)-9).toFixed(1)}"
-                   text-anchor="middle" font-size="10" font-weight="600" fill="#6b7280" opacity="0">
-                   ${isJan ? p.label.slice(0,4) : phFmt(p.label)}</text>`;
-    return s;
-  }).join('');
-
-  el.innerHTML = `<svg id="phase-svg" viewBox="0 0 ${W} ${H}" style="display:block;width:100%">
-      ${grid}${axisTitles}${segs}${dots}
-      <text id="ph-readout" x="${W-pad.r}" y="${pad.t+4}" text-anchor="end"
-            font-size="22" font-weight="800" fill="#d1d5db"></text>
-    </svg>
-    <div id="ph-tip" style="position:absolute;display:none;pointer-events:none;background:#111827;color:#fff;
-         font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;z-index:10"></div>`;
+  // every element carries the index at which it appears in the draw-on
+  svg.append('g').selectAll('line').data(d3.range(1,N)).join('line').attr('class','ph-el')
+    .attr('x1',i=>x(pts[i-1].h)).attr('y1',i=>y(pts[i-1].s))
+    .attr('x2',i=>x(pts[i].h)).attr('y2',i=>y(pts[i].s))
+    .attr('stroke',i=>ramp(i/(N-1))).attr('stroke-width',2).attr('stroke-linecap','round');
+  const big = i => pts[i].label.slice(5)==='01' || i===0 || i===N-1;
+  svg.append('g').selectAll('circle').data(d3.range(N)).join('circle')
+    .attr('class',i=>'ph-el'+(big(i)?' ring':''))
+    .attr('cx',i=>x(pts[i].h)).attr('cy',i=>y(pts[i].s))
+    .attr('r',i=>big(i)?4.5:2.5).attr('fill',i=>ramp(i/(N-1)));
+  svg.append('g').selectAll('text').data(d3.range(N).filter(big)).join('text').attr('class','ph-el ph-lbl')
+    .attr('x',i=>x(pts[i].h)).attr('y',i=>y(pts[i].s)-9).attr('text-anchor','middle')
+    .text(i => pts[i].label.slice(5)==='01' ? pts[i].label.slice(0,4) : phFmt(pts[i].label));
+  const readout = svg.append('text').attr('id','ph-readout').attr('x',W-m.r).attr('y',m.t+4)
+    .attr('text-anchor','end');
 
   // animation — draw on in chronological order
-  const els = [...el.querySelectorAll('.ph-el')];
-  const readout = el.querySelector('#ph-readout');
+  const els = svg.selectAll('.ph-el');
+  const show = k => els.attr('opacity', function(i) { return i <= k ? (this.tagName==='line' ? 0.8 : 1) : 0; });
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduced) {
-    els.forEach(e => e.setAttribute('opacity', e.tagName==='line' ? 0.8 : 1));
-    readout.textContent = '';
+  if (!animate || reduced) {
+    show(N);
   } else {
     const DUR = 6000; let t0 = null;
     const tick = ts => {
       if (t0 === null) t0 = ts;
       const k = Math.min(1, (ts-t0)/DUR) * (N-1);
-      els.forEach(e => {
-        if (+e.dataset.i <= k) e.setAttribute('opacity', e.tagName==='line' ? 0.8 : 1);
-      });
-      readout.textContent = phFmt(pts[Math.min(N-1, Math.floor(k))].label);
+      show(k);
+      readout.text(phFmt(pts[Math.min(N-1, Math.floor(k))].label));
       if (k < N-1) phaseRAF = requestAnimationFrame(tick);
-      else { readout.textContent=''; phaseRAF = null; }
+      else { readout.text(''); phaseRAF = null; }
     };
+    show(-1);
     phaseRAF = requestAnimationFrame(tick);
   }
 
-  // hover — nearest point within 24px
-  const svg = el.querySelector('#phase-svg'), tip = el.querySelector('#ph-tip');
-  svg.addEventListener('mousemove', ev => {
-    const r = svg.getBoundingClientRect(), sc = W/r.width;
-    const mx=(ev.clientX-r.left)*sc, my=(ev.clientY-r.top)*sc;
-    let best=null, bd=24*sc;
+  // hover — nearest month within 24px
+  const focus = svg.append('circle').attr('r',7).attr('fill','none').attr('stroke','var(--text)')
+    .attr('stroke-width',1.5).style('display','none').style('pointer-events','none');
+  svg.on('mousemove', ev => {
+    const [mx,my] = d3.pointer(ev);
+    let best=null, bd=24;
     pts.forEach(p => {
-      const d=Math.hypot(X(p.h)-mx, Y(p.s)-my);
+      const d=Math.hypot(x(p.h)-mx, y(p.s)-my);
       if (d<bd) { bd=d; best=p; }
     });
-    if (!best) { tip.style.display='none'; return; }
-    tip.innerHTML = `<b>${phFmt(best.label)}</b> · ${best.h.toFixed(2)}h · SRI ${best.s.toFixed(1)}`;
-    tip.style.display='block';
-    tip.style.left = (X(best.h)/sc+12)+'px';
-    tip.style.top  = (Y(best.s)/sc-10)+'px';
+    if (!best) { focus.style('display','none'); AR.tip.hide(); return; }
+    focus.style('display',null).attr('cx',x(best.h)).attr('cy',y(best.s));
+    AR.tip.show(`<b>${phFmt(best.label)}</b> · ${best.h.toFixed(2)}h · SRI ${best.s.toFixed(1)}`, ev);
   });
-  svg.addEventListener('mouseleave', () => tip.style.display='none');
+  svg.on('mouseleave', () => { focus.style('display','none'); AR.tip.hide(); });
 }
 
 document.addEventListener('click', e => {
-  if (e.target.closest('#phase-replay')) renderPhase();
+  if (e.target.closest('#phase-replay')) renderPhase(true);
+});
+// the ramp endpoints are theme tokens resolved at draw time → redraw on toggle
+document.addEventListener('ar:theme', () => {
+  if (activeSection === 'longterm') renderPhase(false);
 });
 
 // ── RENDER DISPATCHER ─────────────────────────────────────────────────────
@@ -1382,6 +1002,7 @@ function render() {
     case 'log':         renderKPI(); renderDailyLog(); break;
     case 'longterm':    renderLongTerm(); break;
   }
+  flushCharts();
 }
 
 render();
@@ -1400,7 +1021,8 @@ def build(db_path: str, out_path: str) -> None:
         f"const WORKOUTS = {json.dumps(data['workouts'], separators=(',', ':'))};\n"
     )
 
-    html = HTML_TEMPLATE.replace("{data_js}", data_js)
+    html = (HTML_TEMPLATE.replace("{data_js}", data_js)
+            .replace("{generated}", date.today().isoformat()))
     Path(out_path).write_text(html, encoding="utf-8")
     size = Path(out_path).stat().st_size
     print(f"Written {out_path}  ({size/1024/1024:.2f} MB, "
